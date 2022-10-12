@@ -1,22 +1,53 @@
 const express = require("express");
+var cors = require('cors');
 const queryString = require('query-string');
-var mysql = require('mysql2');
 const { query } = require("express");
 const app = express();
 var helpers = require('./helpers');
+const mysql = require('promise-mysql');
 
-var con = mysql.createConnection({
-    host: "localhost",
-    user: "root",
-    password: "password",
-    database: "homestay"
-  });
+///https://cloud.google.com/sql/docs/mysql/connect-run
 
-  //necessary to parse posts requests from angular
-  app.use(express.urlencoded());
-  app.use(express.json());  
+const config = process.env["DEV"] == "1" ? 
+{
+    user: 'user',
+    password: 'password',
+    database: 'homestay'
+} : 
+//google
+{
+    user: 'user', // e.g. 'my-db-user'
+    password: 'heartKilo845', // e.g. 'my-db-password'
+    database: 'homestay', // e.g. 'my-database'
+    socketPath: '/cloudsql/xenon-monitor-193415:us-central1:homestay-demo', // e.g. '/cloudsql/project:region:instance'
+};
 
-app.listen(3000,() => console.log("listening on port 3000"));
+//const con = await mysql.createPool(config);
+
+//necessary to parse posts requests from angular
+app.use(cors());
+app.use(express.urlencoded({extended:false}));
+app.use(express.json());
+
+  //get pool
+let con
+try {
+(async () => {
+    con = await mysql.createPool(config)
+})()
+} catch(err) {
+    console.log(err)
+}
+
+app.get('/', (req, res) => {
+  const name = process.env.NAME || 'World';
+  res.send(`Hello ${name}!`);
+});
+
+const port = parseInt(process.env.PORT) || 8080;
+app.listen(port, () => {
+  console.log(`listening on port ${port}`);
+});
 
 //deletes user
 app.delete('/user/:id',(req,res) => {
@@ -24,10 +55,10 @@ app.delete('/user/:id',(req,res) => {
 
     if (req.params.id) {
         
-        con.promise().query(`DELETE FROM users WHERE id=?`,
+        con.query(`DELETE FROM users WHERE id=?`,
             [req.params.id])
         .then(
-            con.promise().query(`DELETE FROM homes WHERE userId=?`,
+            con.query(`DELETE FROM homes WHERE userId=?`,
             [req.params.id])
         )
         .then(data => {
@@ -43,19 +74,25 @@ app.post('/user/:id/changePassword',(req,res) => {
     console.log(req.body);
     if (req.body.email && req.body.password && req.body.newPassword) {
         
-        con.promise().query(`SELECT * FROM users WHERE email=? AND password=?`,
+        con.query(`SELECT * FROM users WHERE email=? AND password=?`,
             [req.body.email, req.body.password])
-        .then(
-            con.promise().query(`UPDATE users SET password=? WHERE id=? AND email=? AND password=?`,
+        .then(result => {
+            con.query(`UPDATE users SET password=? WHERE id=? AND email=? AND password=?`,
             [req.body.newPassword, req.params.id, req.body.email, req.body.password])
+        }
         )
         .then(data => {
             console.log(data);
             req.body.password = req.body.newPassword;
             delete req.body.newPassword;
             res.status(200).json(req.body)}
-            );
-
+            )
+        .catch(error => {
+            res.status(400).json("user or password not found")
+        })
+    }
+    else {
+        res.status(400).json("incomplete query");
     }
 })
 
@@ -66,18 +103,19 @@ app.post('/register',(req,res) => {
 
     if (req.body.email && req.body.password) {
         
-        con.promise().query(`INSERT INTO users (email,password) VALUES(?,?)`,
+        con.query(`INSERT INTO users (email,password) VALUES(?,?)`,
             [req.body.email, req.body.password])
         .then(data => { 
-            if (data && data[0] && (data[0]["warningStatus"] === 0 || data[0]["warningCount"] === 0)) {
+            if (data && (data["warningStatus"] === 0 || data["warningCount"] === 0)) {
                 let user = {...req.body};
-                user["id"] = data[0]["insertId"];
+                user["id"] = data["insertId"];
                 res.status(200).json(user);
             } 
             else {
                 res.status(401).json(null);
             }
-        } );
+        } )
+        .catch(error => res.status(401).json(error));
     }
 })
 
@@ -87,9 +125,8 @@ app.post('/authenticate',(req,res) => {
 
     if (req.body.email && req.body.password) {
         
-        con.promise().query(`SELECT * FROM users WHERE email=? AND password=?`,
+        con.query(`SELECT * FROM users WHERE email=? AND password=?`,
             [req.body.email, req.body.password])
-        .then(([rows,fields]) => rows)
         .then(rows => { 
             if (rows.length > 0) res.status(200).json(rows[0]); 
             else {
@@ -104,8 +141,7 @@ app.post('/authenticate',(req,res) => {
 app.get('/user/:id/homes',(req,res) => {
 
     if (req.params.id) {
-        con.promise().query(`SELECT * FROM homes WHERE userId=?`,[req.params.id])
-        .then(([rows,fields]) => rows)
+        con.query(`SELECT * FROM homes WHERE userId=?`,[req.params.id])
         .then(data => res.status(200).json(data));
     }
 })
@@ -116,8 +152,8 @@ app.post('/home',(req,res) => {
 
     if (req.body.numBeds && req.body.city && req.body.hasKids && req.body.isMusician) {
         
-        con.promise().query(`INSERT INTO homes (userId,city,numBeds,isMusician,hasKids,imageUrl) 
-            VALUES (?,?,?,?,?,?)`,[req.body.userId, req.body.city, req.body.numBeds, req.body.isMusician, req.body.hasKids, req.body.imageUrl])
+        con.query(`INSERT INTO homes (userId,city,numBeds,isMusician,hasKids) 
+            VALUES (?,?,?,?,?)`,[req.body.userId, req.body.city, req.body.numBeds, req.body.isMusician, req.body.hasKids])
         .then(data => res.status(200).json("OK"));
     }
 })
@@ -129,7 +165,7 @@ app.delete('/home/:id',(req,res) => {
 
     if (req.params.id) {
         
-        con.promise().query(`DELETE FROM homes WHERE id=?`,
+        con.query(`DELETE FROM homes WHERE id=?`,
             [req.params.id])
         .then(data => res.status(200).json("OK"));
     }
@@ -141,8 +177,8 @@ app.patch('/home/:id',(req,res) => {
 
     if (req.params.id && req.body.userId && req.body.numBeds && req.body.city && req.body.hasKids != undefined && req.body.isMusician != undefined) {
         
-        con.promise().query(`UPDATE homes SET city=?, numBeds=?,isMusician=?, hasKids=?, imageUrl=? WHERE id=? AND userId=?`,
-            [req.body.city,req.body.numBeds,req.body.isMusician,req.body.hasKids,req.body.imageUrl,req.params.id, req.body.userId])
+        con.query(`UPDATE homes SET city=?, numBeds=?,isMusician=?, hasKids=? WHERE id=? AND userId=?`,
+            [req.body.city,req.body.numBeds,req.body.isMusician,req.body.hasKids,req.params.id, req.body.userId])
         .then(data => res.status(200).json(req.body));
     }
 })
@@ -170,8 +206,7 @@ app.get('/homes',(req,res) => {
         return;
     }
 
-    console.log("offset: "+ offset);
-    con.promise().query("SELECT * FROM homes WHERE " + otherQuery.join(" AND ") + " LIMIT 10 OFFSET ?",[offset])
-    .then(([rows,fields]) => rows)
+    //console.log("offset: "+ offset);
+    con.query("SELECT * FROM homes WHERE " + otherQuery.join(" AND ") + " LIMIT 10 OFFSET ?",[offset])
     .then(data => res.status(200).json(data));
 });

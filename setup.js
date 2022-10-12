@@ -3,7 +3,7 @@ var mysql = require('mysql');
 
 var con = mysql.createConnection({
     host: "localhost",
-    user: "root",
+    user: "user",
     password: "password",
     database: "homestay"
   });
@@ -31,21 +31,19 @@ con.connect(function(err) {
   
 
   
-/*
+
   
+var con = mysql.createConnection({
+  host: "localhost",
+  user: "user",
+  password: "password",
+  database: "homestay"
+});
+
 con.connect(function(err) {
     if (err) throw err;
     console.log("Connected!");
-    /*
-    var sql = "INSERT INTO users (email, password, firstName, lastName) VALUES ?";
-    let values = [
-        [     "user1@gmail.com", "password1", "firstName", "lastName" ],
-        [     "user2@gmail.com", "password2","firstName", "lastName" ],
-        [     "user3@gmail.com", "password3","firstName", "lastName" ],
-        [     "user4@gmail.com", "password4","firstName", "lastName" ],
-        [     "user5@gmail.com", "password5","firstName", "lastName" ],
-        [     "user6@gmail.com", "password6","firstName", "lastName" ],
-      ];
+    
       
     var sql = "INSERT INTO users (email, password) VALUES ?";
     let values = [
@@ -60,4 +58,4 @@ con.connect(function(err) {
       if (err) throw err;
       console.log("Number of records inserted: " + result.affectedRows);
     });
-  });*/
+  });
